@@ -1,133 +1,91 @@
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.util.LinkedList;
-import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PoolManager {
+    private final ConnectionPool pool;
 
-    private static PoolManager instancia;
+    // Métricas concurrentes
+    private final AtomicLong operaciones   = new AtomicLong(0);
+    private final AtomicLong fallos        = new AtomicLong(0);
+    private final AtomicLong tiempoTotalNs = new AtomicLong(0);
+    private final AtomicInteger enUso      = new AtomicInteger(0);
+    private final AtomicInteger enEspera   = new AtomicInteger(0);
 
-    private final Queue<Connection> conexionesDisponibles;
+    private volatile boolean activo = false;
+    private final Thread[] hilos;
 
-    private final int MIN_CONEXIONES = 5;
-    private final int MAX_CONEXIONES = 20; 
-    private int conexionesTotales = 0;
-
-    private final String URL = "jdbc:postgresql://localhost:5432/nombre_de_tu_base_de_datos";
-    private final String USUARIO = "tu_usuario";
-    private final String PASSWORD = "tu_password";
-
-    private PoolManager() {
-        conexionesDisponibles = new LinkedList<>();
-        inicializarPool();
+    public PoolManager(ConnectionPool pool, int numHilos) {
+        this.pool = pool;
+        this.hilos = new Thread[numHilos];
     }
 
-    public static synchronized PoolManager getInstance() {
-        if (instancia == null) {
-            instancia = new PoolManager();
-        }
-        return instancia;
-    }
-
-    private void inicializarPool() {
-        for (int i = 0; i < MIN_CONEXIONES; i++) {
-            try {
-                grow();
-            } catch (SQLException e) {
-                System.err.println("Error al inicializar conexión en el pool: " + e.getMessage());
-            }
+    public void iniciar() {
+        if (activo) return;
+        activo = true;
+        for (int i = 0; i < hilos.length; i++) {
+            hilos[i] = new Thread(this::bucle, "trabajador-" + i);
+            hilos[i].setDaemon(true);
+            hilos[i].start();
         }
     }
 
-    public synchronized Connection getConnection() throws SQLException {
-        while (conexionesDisponibles.isEmpty()) {
-            if (conexionesTotales < MAX_CONEXIONES) {
-                grow();
-            } else {
-                System.out.println("Pool lleno. Cliente en espera de una conexión disponible...");
-                try {
-                    wait(5000); 
-                    if (conexionesDisponibles.isEmpty()) {
-                        throw new SQLException("Timeout: No se pudo obtener una conexión del pool a tiempo.");
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new SQLException("El hilo fue interrumpido mientras esperaba una conexión.", e);
-                }
-            }
+    private void bucle() {
+        while (activo) {
+            ejecutarOperacion();
         }
+    }
 
-        while (true) {
-            Connection conn = conexionesDisponibles.poll();
+    private void ejecutarOperacion() {
+        long inicio = System.nanoTime();
+        Object conn = null;
+        enEspera.incrementAndGet();
+        
+        try {
+            // Pide la conexión al Pool
+            conn = pool.obtener(1500);
+            enEspera.decrementAndGet();
+            enUso.incrementAndGet();
             
-            if (conn != null && conn.isValid(2)) {
-                return conn;
-            } else {
-                System.out.println("Conexión inválida detectada. Descartando y reintentando...");
-                conexionesTotales--; 
-                
-                if (conexionesDisponibles.isEmpty()) {
-                    if (conexionesTotales < MAX_CONEXIONES) {
-                        grow();
-                    } else {
-                         throw new SQLException("No hay conexiones válidas disponibles en el pool.");
-                    }
-                }
-            }
+            // Simula el tiempo de procesamiento (Query)
+            Thread.sleep(300 + (long) (Math.random() * 500)); // Ahora tarda entre 300ms y 800ms            
+            // Simula un 10% de fallos aleatorios
+            if (Math.random() < 0.10) throw new RuntimeException("fallo simulado");
+            
+        } catch (Exception e) {
+            fallos.incrementAndGet();
+            enEspera.decrementAndGet();
+        } finally {
+            // Devuelve la conexión y actualiza métricas
+            if (conn != null) pool.liberar(conn);
+            if (enUso.get() > 0) enUso.decrementAndGet();
+            tiempoTotalNs.addAndGet(System.nanoTime() - inicio);
+            operaciones.incrementAndGet();
         }
     }
 
-    public synchronized void releaseConnection(Connection conn) {
-        if (conn != null) {
-            try {
-                if (!conn.isClosed()) {
-                    conexionesDisponibles.offer(conn);
-                    notifyAll();
-                } else {
-                    conexionesTotales--; 
-                }
-            } catch (SQLException e) {
-                conexionesTotales--;
-            }
+    public void detener() {
+        activo = false;
+        for (Thread t : hilos) {
+            if (t != null) t.interrupt();
         }
     }
 
-    private void grow() throws SQLException {
-        System.out.println("Creando nueva conexión física a la Base de Datos...");
-        Connection nuevaConexion = DriverManager.getConnection(URL, USUARIO, PASSWORD);
-        conexionesDisponibles.offer(nuevaConexion);
-        conexionesTotales++;
+    // Getters para la interfaz gráfica
+    public long getOperaciones() { return operaciones.get(); }
+    public long getFallos()      { return fallos.get(); }
+    public int  getEnUso()       { return enUso.get(); }
+    public int  getEnEspera()    { return Math.max(0, enEspera.get()); }
+    public int  getLibres()      { return pool.getLibres(); }
+    public int  getCapacidad()   { return pool.getCapacidad(); }
+    public int  getCreadas()     { return pool.getCreadas(); }
+
+    public double getVelocidadPromedioMs() {
+        long n = operaciones.get();
+        return n == 0 ? 0 : (tiempoTotalNs.get() / 1_000_000.0) / n;
     }
 
-    public synchronized void shrink() {
-        while (conexionesTotales > MIN_CONEXIONES && conexionesDisponibles.size() > MIN_CONEXIONES) {
-            System.out.println("Cerrando conexiones ociosas (Shrink)...");
-            Connection conn = conexionesDisponibles.poll();
-            try {
-                if (conn != null && !conn.isClosed()) {
-                    conn.close();
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-            conexionesTotales--;
-        }
-    }
-
-    public synchronized void disconnect() {
-        System.out.println("Cerrando todas las conexiones y destruyendo el Pool...");
-        for (Connection conn : conexionesDisponibles) {
-            try {
-                if (conn != null && !conn.isClosed()) {
-                    conn.close();
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-        conexionesDisponibles.clear();
-        conexionesTotales = 0;
-        instancia = null; 
+    public double getTasaFallosPorciento() {
+        long n = operaciones.get();
+        return n == 0 ? 0 : (100.0 * fallos.get() / n);
     }
 }
