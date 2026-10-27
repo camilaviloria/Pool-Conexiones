@@ -1,4 +1,7 @@
 public class SimuladorConexion implements CreadorConexiones {
+
+    public SimuladorConexion() {
+    }
     private int contador = 0;
 
     @Override

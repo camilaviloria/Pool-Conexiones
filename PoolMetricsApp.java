@@ -1,8 +1,10 @@
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
@@ -10,6 +12,7 @@ import javafx.stage.Stage;
 public class PoolMetricsApp extends Application {
 
     private PoolManager manager;
+    private AnimationTimer timer; // Guardamos el timer para poder detenerlo
 
     private final Label lblVelocidad  = new Label();
     private final Label lblFallos     = new Label();
@@ -19,13 +22,14 @@ public class PoolMetricsApp extends Application {
     private final Label lblEnEspera   = new Label();
     private final Label lblLibres     = new Label();
     private final Label lblCreadas    = new Label();
+    
+    private final Button btnDetener   = new Button("Detener Simulación");
 
     @Override
     public void start(Stage stage) throws Exception {
         // 1. Configurar el Pool
-        CreadorConexiones factory = new SimuladorConexion();
-        // Inicia con 10 conexiones, máximo 50.
-        ConnectionPool pool = new ConnectionPool(10, 50, factory);
+        SimuladorConexion factory = new SimuladorConexion();
+        ConnectionPool pool = new ConnectionPool(10, 50, factory); // 10 iniciales, 50 máximo
         
         // 2. Iniciar 500 hilos concurrentes
         manager = new PoolManager(pool, 500);
@@ -47,12 +51,15 @@ public class PoolMetricsApp extends Application {
         grid.add(new Label("Conexiones libres:"),  0, fila); grid.add(lblLibres,     1, fila++);
         grid.add(new Label("Conexiones creadas:"), 0, fila); grid.add(lblCreadas,    1, fila++);
 
-        stage.setScene(new Scene(grid, 340, 300));
+        // Agregamos el botón al final
+        grid.add(btnDetener, 0, fila, 2, 1); 
+
+        stage.setScene(new Scene(grid, 360, 330));
         stage.setTitle("Pool Manager — Métricas en Tiempo Real");
         stage.show();
 
-        // 4. Timer para refrescar los datos cada 300ms
-        new AnimationTimer() {
+        // 4. Timer para refrescar los datos
+        timer = new AnimationTimer() {
             private long ultimo = 0;
             @Override
             public void handle(long ahora) {
@@ -60,7 +67,16 @@ public class PoolMetricsApp extends Application {
                 ultimo = ahora;
                 Platform.runLater(PoolMetricsApp.this::refrescar);
             }
-        }.start();
+        };
+        timer.start(); // Iniciamos la actualización
+
+        // 5. Acción del botón para detener todo
+        btnDetener.setOnAction((ActionEvent e) -> {
+            timer.stop();      // Congela las métricas en pantalla
+            manager.detener(); // Detiene los 500 hilos en segundo plano
+            btnDetener.setDisable(true);
+            btnDetener.setText("Simulación Detenida");
+        });
     }
 
     private void refrescar() {
@@ -76,8 +92,12 @@ public class PoolMetricsApp extends Application {
 
     @Override
     public void stop() {
+        // Esto se ejecuta si el usuario cierra la ventana con la "X"
         if (manager != null) manager.detener();
+        if (timer != null) timer.stop();
     }
 
-    public static void main(String[] args) { launch(args); }
+    public static void main(String[] args) {
+        launch(args);
+    }
 }
