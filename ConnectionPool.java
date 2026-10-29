@@ -1,15 +1,15 @@
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.BlockingQueue; 
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectionPool {
-    private final BlockingQueue<Object> libres;
-    private final CreadorConexiones factory;
-    private final int maximo;
-    private final AtomicInteger creadas = new AtomicInteger(0);
+    private final BlockingQueue<Object> libres; // cola que guarda las conexiones libres
+    private final CreadorConexiones factory; // fábrica para crear nuevas conexiones
+    private final int maximo; // máximo de conexiones que puede haber
+    private final AtomicInteger creadas = new AtomicInteger(0); // contador de conexiones creadas
 
-    public ConnectionPool(int tamanoInicial, int maximo, CreadorConexiones factory) throws Exception {
+    public ConnectionPool(int tamanoInicial, int maximo, CreadorConexiones factory) throws Exception { 
         this.factory = factory;
         this.maximo = maximo;
         this.libres = new LinkedBlockingQueue<>(maximo);

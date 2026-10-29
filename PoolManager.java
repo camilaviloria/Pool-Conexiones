@@ -2,6 +2,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PoolManager {
+    // 1. LA INSTANCIA ÚNICA (SINGLETON)
+    private static PoolManager instancia;
+
     private final ConnectionPool pool;
 
     // Métricas concurrentes
@@ -14,9 +17,18 @@ public class PoolManager {
     private volatile boolean activo = false;
     private final Thread[] hilos;
 
-    public PoolManager(ConnectionPool pool, int numHilos) {
+    // 2. CONSTRUCTOR PRIVADO (Regla del Singleton)
+    private PoolManager(ConnectionPool pool, int numHilos) {
         this.pool = pool;
-        this.hilos = new Thread[numHilos];
+        this.hilos = new Thread[numHilos]; 
+    }
+
+    // 3. MÉTODO PARA OBTENER LA INSTANCIA ÚNICA
+    public static synchronized PoolManager getInstance(ConnectionPool pool, int numHilos) { 
+        if (instancia == null) {
+            instancia = new PoolManager(pool, numHilos);
+        }
+        return instancia;
     }
 
     public void iniciar() {
@@ -41,21 +53,19 @@ public class PoolManager {
         enEspera.incrementAndGet();
         
         try {
-            // Pide la conexión al Pool
-            conn = pool.obtener(1500);
+            conn = pool.obtener(5000);
             enEspera.decrementAndGet();
             enUso.incrementAndGet();
             
-            // Simula el tiempo de procesamiento (Query)
-            Thread.sleep(300 + (long) (Math.random() * 500)); // Ahora tarda entre 300ms y 800ms            
-            // Simula un 10% de fallos aleatorios
+ // 3. Simula el tiempo que tarda la base de datos en procesar la query
+            // AHORA ES FIJO EN 1000 ms (1 segundo) para que la gráfica capture bien los datos
+            Thread.sleep(1000); 
             if (Math.random() < 0.10) throw new RuntimeException("fallo simulado");
             
         } catch (Exception e) {
             fallos.incrementAndGet();
             enEspera.decrementAndGet();
         } finally {
-            // Devuelve la conexión y actualiza métricas
             if (conn != null) pool.liberar(conn);
             if (enUso.get() > 0) enUso.decrementAndGet();
             tiempoTotalNs.addAndGet(System.nanoTime() - inicio);
@@ -70,7 +80,6 @@ public class PoolManager {
         }
     }
 
-    // Getters para la interfaz gráfica
     public long getOperaciones() { return operaciones.get(); }
     public long getFallos()      { return fallos.get(); }
     public int  getEnUso()       { return enUso.get(); }

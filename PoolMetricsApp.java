@@ -40,8 +40,8 @@ public class PoolMetricsApp extends Application {
         CreadorConexiones factory = new SimuladorConexion();
         ConnectionPool pool = new ConnectionPool(10, 50, factory);
         
-        // 2. Iniciar 500 hilos concurrentes
-        manager = new PoolManager(pool, 500);
+        // 2. Obtener la instancia del Singleton (PoolManager)
+        manager = PoolManager.getInstance(pool, 500);
         manager.iniciar();
 
         // 3. Configurar la interfaz gráfica (Textos)
