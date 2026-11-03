@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.pool</groupId>
     <artifactId>pool-conexiones</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -17,7 +17,7 @@
     </properties>
 
     <dependencies>
-        <!-- Dependencias de JavaFX -->
+        <!-- JavaFX -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
@@ -29,19 +29,20 @@
             <version>${javafx.version}</version>
         </dependency>
 
-        <!-- Tu driver de PostgreSQL (basado en tu captura) -->
+        <!-- Drivers de Base de Datos -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.1</version>
         </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.4.0</version>
+        </dependency>
     </dependencies>
 
     <build>
-        <!-- Como tus archivos .java están en la raíz del proyecto, 
-             le decimos a Maven que los busque ahí -->
-        <sourceDirectory>${project.basedir}</sourceDirectory>
-        
         <plugins>
             <!-- Plugin para ejecutar JavaFX con Maven -->
             <plugin>
@@ -49,9 +50,19 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <!-- Revisa si tu clase tiene un 'package' al inicio. 
-                         Si dice 'package com.miproyecto;', cámbialo a com.miproyecto.PoolMetricsApp -->
-                    <mainClass>PoolMetricsApp</mainClass>
+                    <!-- IMPORTANTE: Aquí se declara el paquete + la clase principal -->
+                    <mainClass>com.pool.PoolMetricsApp</mainClass>
+                </configuration>
+            </plugin>
+            
+            <!-- Plugin del compilador para asegurar la versión de Java -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
                 </configuration>
             </plugin>
         </plugins>
