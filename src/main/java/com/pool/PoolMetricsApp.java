@@ -283,41 +283,61 @@ if (cssUrl != null) {
     }
 
     private void mostrarResultados(MetricsSnapshot pool, MetricsSnapshot direct) {
-        lblTiempoPool.setText(pool.getElapsedMs() + " ms");
-        lblTiempoDirect.setText(direct.getElapsedMs() + " ms");
-        lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
-        lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
-        lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
+    // 1. Actualizar las tarjetas de la izquierda
+    lblTiempoPool.setText(pool.getElapsedMs() + " ms");
+    lblTiempoDirect.setText(direct.getElapsedMs() + " ms");
+    lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
+    lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
+    lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
 
-        double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
-        lblDelta.setText(String.format("%+.1f ms", delta));
+    double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
+    lblDelta.setText(String.format("%+.1f ms", delta));
 
-        boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
-        lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
-        
-        long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
-        long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
-        lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
+    boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
+    lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
+    
+    long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
+    long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
+    lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
 
-        tabla.getItems().setAll(
-            new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
-                        pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
-                                                String.format("%.1f ms", direct.getAvgResponseMs()),
-                        pool.getAvgResponseMs() <= direct.getAvgResponseMs() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Peticiones / segundo", String.format("%.1f", pool.getThroughput()),
-                                                String.format("%.1f", direct.getThroughput()),
-                        pool.getThroughput() >= direct.getThroughput() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Exitosas",             String.format("%.1f %%", pool.getSuccessPercent()),
-                                                String.format("%.1f %%", direct.getSuccessPercent()),
-                        pool.getSuccessPercent() >= direct.getSuccessPercent() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Fallidas",             String.valueOf(pool.getFailures()),
-                                                String.valueOf(direct.getFailures()),
-                        pool.getFailures() <= direct.getFailures() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Reintentos",           String.valueOf(pool.getRetries()),
-                                                String.valueOf(direct.getRetries()), "—")
-        );
+    // 2. LLENAR LA GRÁFICA (La solución al problema)
+    seriePool.getData().clear();
+    serieDirect.getData().clear();
+    
+    // Agregamos un punto inicial en el segundo 0
+    seriePool.getData().add(new XYChart.Data<>(0, 0));
+    serieDirect.getData().add(new XYChart.Data<>(0, 0));
+    
+    // Calculamos cuántas peticiones por segundo hubo en promedio
+    double tPool = pool.getThroughput();
+    double tDirect = direct.getThroughput();
+    
+    // Llenamos la gráfica con 10 puntos de referencia para que se dibujen las líneas
+    for (int i = 1; i <= 10; i++) {
+        seriePool.getData().add(new XYChart.Data<>(i, tPool));
+        serieDirect.getData().add(new XYChart.Data<>(i, tDirect));
     }
+
+    // 3. Actualizar la tabla
+    tabla.getItems().setAll(
+        new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
+                    pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
+        new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
+                                            String.format("%.1f ms", direct.getAvgResponseMs()),
+                    pool.getAvgResponseMs() <= direct.getAvgResponseMs() ? "CON POOL" : "SIN POOL"),
+        new Metrica("Peticiones / segundo", String.format("%.1f", pool.getThroughput()),
+                                            String.format("%.1f", direct.getThroughput()),
+                    pool.getThroughput() >= direct.getThroughput() ? "CON POOL" : "SIN POOL"),
+        new Metrica("Exitosas",             String.format("%.1f %%", pool.getSuccessPercent()),
+                                            String.format("%.1f %%", direct.getSuccessPercent()),
+                    pool.getSuccessPercent() >= direct.getSuccessPercent() ? "CON POOL" : "SIN POOL"),
+        new Metrica("Fallidas",             String.valueOf(pool.getFailures()),
+                                            String.valueOf(direct.getFailures()),
+                    pool.getFailures() <= direct.getFailures() ? "CON POOL" : "SIN POOL"),
+        new Metrica("Reintentos",           String.valueOf(pool.getRetries()),
+                                            String.valueOf(direct.getRetries()), "—")
+    );
+}
 
  private static Spinner<Integer> sp(int val, int min, int max, int step) {
     Spinner<Integer> s = new Spinner<>();

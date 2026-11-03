@@ -45,9 +45,9 @@ public class Cliente implements Runnable {
             try {
                 ejecutar(sql);
                 ok = true;
-            } catch (SQLException | InterruptedException | RuntimeException e) {
-                // reintento
-            }
+           } catch (SQLException | InterruptedException | RuntimeException e) {
+    System.err.println("Error en consulta: " + e.getMessage()); // <--- Agrega esta línea
+}
         }
 
         metrics.record(ok, System.nanoTime() - inicio, reintentos);

@@ -34,11 +34,13 @@ public class Simulation {
         ConnectionProvider provider;
 
         if (mode == Mode.WITH_POOL) {
-            try {
-                pool = new ConnectionPool(settings.getPoolInicial(), settings.getPoolMaximo(), factory);
-            } catch (SQLException e) {
-                return metrics.snapshot(0);
-            }
+           try {
+    pool = new ConnectionPool(settings.getPoolInicial(), settings.getPoolMaximo(), factory);
+} catch (SQLException e) {
+    System.err.println("¡ERROR AL CREAR EL POOL! " + e.getMessage());
+    e.printStackTrace();
+    return metrics.snapshot(0);
+}
             provider = new PoolConnectionProvider(pool, TIMEOUT_MS);
         } else {
             provider = new DirectConnectionProvider(factory);
