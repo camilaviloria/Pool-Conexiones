@@ -1,13 +1,12 @@
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PoolManager {
-    // 1. LA INSTANCIA ÚNICA (SINGLETON)
     private static PoolManager instancia;
-
     private final ConnectionPool pool;
-
-    // Métricas concurrentes
+    
     private final AtomicLong operaciones   = new AtomicLong(0);
     private final AtomicLong fallos        = new AtomicLong(0);
     private final AtomicLong tiempoTotalNs = new AtomicLong(0);
@@ -15,35 +14,40 @@ public class PoolManager {
     private final AtomicInteger enEspera   = new AtomicInteger(0);
 
     private volatile boolean activo = false;
-    private final Thread[] hilos;
+    
+    private ExecutorService executor;
+    private final int numHilos;
 
-    // 2. CONSTRUCTOR PRIVADO (Regla del Singleton)
     private PoolManager(ConnectionPool pool, int numHilos) {
         this.pool = pool;
-        this.hilos = new Thread[numHilos]; 
+        this.numHilos = numHilos;
     }
 
-    // 3. MÉTODO PARA OBTENER LA INSTANCIA ÚNICA
-    public static synchronized PoolManager getInstance(ConnectionPool pool, int numHilos) { 
-        if (instancia == null) {
-            instancia = new PoolManager(pool, numHilos);
-        }
+    public static synchronized PoolManager getInstance(ConnectionPool pool, int numHilos) {
+        if (instancia == null) instancia = new PoolManager(pool, numHilos);
         return instancia;
     }
 
     public void iniciar() {
         if (activo) return;
         activo = true;
-        for (int i = 0; i < hilos.length; i++) {
-            hilos[i] = new Thread(this::bucle, "trabajador-" + i);
-            hilos[i].setDaemon(true);
-            hilos[i].start();
+        
+        executor = Executors.newFixedThreadPool(numHilos);
+        
+        for (int i = 0; i < numHilos; i++) {
+            executor.execute(this::bucle);
         }
     }
 
     private void bucle() {
         while (activo) {
             ejecutarOperacion();
+            try {
+                Thread.sleep(50); 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
     }
 
@@ -53,13 +57,13 @@ public class PoolManager {
         enEspera.incrementAndGet();
         
         try {
-            conn = pool.obtener(5000);
+            conn = pool.obtener(6000); 
+            
             enEspera.decrementAndGet();
             enUso.incrementAndGet();
             
- // 3. Simula el tiempo que tarda la base de datos en procesar la query
-            // AHORA ES FIJO EN 1000 ms (1 segundo) para que la gráfica capture bien los datos
-            Thread.sleep(1000); 
+            Thread.sleep(100); 
+            
             if (Math.random() < 0.10) throw new RuntimeException("fallo simulado");
             
         } catch (Exception e) {
@@ -75,8 +79,8 @@ public class PoolManager {
 
     public void detener() {
         activo = false;
-        for (Thread t : hilos) {
-            if (t != null) t.interrupt();
+        if (executor != null) {
+            executor.shutdownNow(); 
         }
     }
 
