@@ -17,6 +17,7 @@ import javafx.scene.chart.XYChart;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+
 public class PoolMetricsApp extends Application {
 
     private final ToggleGroup engineGroup = new ToggleGroup();
@@ -36,16 +37,14 @@ public class PoolMetricsApp extends Application {
 
     private XYChart.Series<Number, Number> seriePool;
     private XYChart.Series<Number, Number> serieDirect;
-    private int segundoActual = 0;
 
     private final TableView<Metrica> tabla = new TableView<>();
-
     private final ProgressBar progress = new ProgressBar(0);
     private final Label status = new Label("Listo.");
 
     private final Spinner<Integer> spRequests = sp(1000, 1, 200_000, 500);
     private final Spinner<Integer> spThreads  = sp(200, 1, 5000, 10);
-    private final Spinner<Integer> spRetries  = sp(2, 0, 10, 1);
+    private final Spinner<Integer> spRetries  = sp(2, 0, 999, 1);
     private final Spinner<Integer> spPoolInit = sp(AppConfig.getInt("pool.init.size", 20), 0, 5000, 5);
     private final Spinner<Integer> spPoolMax  = sp(AppConfig.getInt("pool.max.size", 200), 1, 5000, 5);
 
@@ -60,12 +59,11 @@ public class PoolMetricsApp extends Application {
         root.setBottom(buildStatusBar());
 
         Scene scene = new Scene(root, 1150, 780);
-        
-        // Cargar CSS de forma segura
+
         var cssUrl = getClass().getResource("/styles.css");
-if (cssUrl != null) {
-    scene.getStylesheets().add(cssUrl.toExternalForm());
-} else {
+        if (cssUrl != null) {
+            scene.getStylesheets().add(cssUrl.toExternalForm());
+        } else {
             System.err.println("No se encontró styles.css en resources.");
         }
 
@@ -187,6 +185,7 @@ if (cssUrl != null) {
         serieDirect.setName("SIN pool");
         chart.getData().add(seriePool);
         chart.getData().add(serieDirect);
+        
         Platform.runLater(() -> {
             if (seriePool.getNode() != null)
                 seriePool.getNode().setStyle("-fx-stroke: #4CAF50; -fx-stroke-width: 2.5;");
@@ -242,7 +241,6 @@ if (cssUrl != null) {
         tabla.getItems().clear();
         seriePool.getData().clear();
         serieDirect.getData().clear();
-        segundoActual = 0;
 
         int requests = spRequests.getValue();
         SimulationSettings settings = new SimulationSettings(
@@ -251,26 +249,46 @@ if (cssUrl != null) {
         );
 
         ToggleButton selected = (ToggleButton) engineGroup.getSelectedToggle();
-        DatabaseType engine = selected != null && selected.getText().equals("MySQL") ? DatabaseType.MYSQL 
-                            : selected != null && selected.getText().equals("PostgreSQL") ? DatabaseType.POSTGRES 
+        DatabaseType engine = selected != null && selected.getText().equals("MySQL") ? DatabaseType.MYSQL
+                            : selected != null && selected.getText().equals("PostgreSQL") ? DatabaseType.POSTGRES
                             : DatabaseType.SIMULADO;
 
         Thread hilo = new Thread(() -> {
             try {
+                // 1. CON POOL (sin límite de tiempo)
                 Platform.runLater(() -> status.setText("Ejecutando CON POOL..."));
                 Simulation sim = new Simulation(engine.createFactory(), settings);
-                
                 Metrics m1 = new Metrics();
-                MetricsSnapshot snapPool = sim.run(Simulation.Mode.WITH_POOL, m1);
+                MetricsSnapshot snapPool = sim.run(Simulation.Mode.WITH_POOL, m1, 0);
 
-                Platform.runLater(() -> status.setText("Ejecutando SIN POOL..."));
+                // 2. SIN POOL (límite de 15s)
+                Platform.runLater(() -> status.setText("Ejecutando SIN POOL (máx 15s)..."));
                 Metrics m2 = new Metrics();
-                MetricsSnapshot snapDirect = sim.run(Simulation.Mode.WITHOUT_POOL, m2);
+                MetricsSnapshot snapDirect = sim.run(
+                        Simulation.Mode.WITHOUT_POOL, m2,
+                        Simulation.TIMEOUT_SIN_POOL_MS
+                );
 
-                Platform.runLater(() -> mostrarResultados(snapPool, snapDirect));
+                // 3. Mostrar resultados
+                Platform.runLater(() -> {
+                    mostrarResultados(snapPool, snapDirect);
+                    
+                    if (snapDirect.isAborted()) {
+                        Alert alert = new Alert(Alert.AlertType.WARNING);
+                        alert.setTitle("Prueba abortada");
+                        alert.setHeaderText("⚠️ La prueba SIN POOL superó los 15 segundos");
+                        alert.setContentText(
+                                "Se abortó la prueba SIN POOL para no exceder el límite de 15s.\n\n" +
+                                "Se completaron " + snapDirect.getRequests() + " de " + requests + " peticiones.\n" +
+                                "Los resultados mostrados son parciales."
+                        );
+                        alert.showAndWait();
+                    }
+                });
 
             } catch (Exception ex) {
                 Platform.runLater(() -> status.setText("Error: " + ex.getMessage()));
+                ex.printStackTrace();
             } finally {
                 Platform.runLater(() -> {
                     progress.setProgress(0);
@@ -283,69 +301,71 @@ if (cssUrl != null) {
     }
 
     private void mostrarResultados(MetricsSnapshot pool, MetricsSnapshot direct) {
-    // 1. Actualizar las tarjetas de la izquierda
-    lblTiempoPool.setText(pool.getElapsedMs() + " ms");
-    lblTiempoDirect.setText(direct.getElapsedMs() + " ms");
-    lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
-    lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
-    lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
+        lblTiempoPool.setText(pool.getElapsedMs() + " ms");
+        lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
+        lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
+        lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
 
-    double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
-    lblDelta.setText(String.format("%+.1f ms", delta));
+        double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
+        lblDelta.setText(String.format("%+.1f ms", delta));
 
-    boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
-    lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
-    
-    long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
-    long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
-    lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
+        boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
+        lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
+        
+        long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
+        long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
+        lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
 
-    // 2. LLENAR LA GRÁFICA (La solución al problema)
-    seriePool.getData().clear();
-    serieDirect.getData().clear();
-    
-    // Agregamos un punto inicial en el segundo 0
-    seriePool.getData().add(new XYChart.Data<>(0, 0));
-    serieDirect.getData().add(new XYChart.Data<>(0, 0));
-    
-    // Calculamos cuántas peticiones por segundo hubo en promedio
-    double tPool = pool.getThroughput();
-    double tDirect = direct.getThroughput();
-    
-    // Llenamos la gráfica con 10 puntos de referencia para que se dibujen las líneas
-    for (int i = 1; i <= 10; i++) {
-        seriePool.getData().add(new XYChart.Data<>(i, tPool));
-        serieDirect.getData().add(new XYChart.Data<>(i, tDirect));
+        // Si la prueba directa fue abortada, lo marcamos visualmente
+        if (direct.isAborted()) {
+            lblTiempoDirect.setText(direct.getElapsedMs() + " ms (abortado)");
+            lblTiempoDirect.setStyle("-fx-text-fill: #E53935;"); 
+        } else {
+            lblTiempoDirect.setText(direct.getElapsedMs() + " ms");
+            lblTiempoDirect.setStyle(""); 
+        }
+
+        // Gráfica
+        seriePool.getData().clear();
+        serieDirect.getData().clear();
+        seriePool.getData().add(new XYChart.Data<>(0, 0));
+        serieDirect.getData().add(new XYChart.Data<>(0, 0));
+        
+        double tPool = pool.getThroughput();
+        double tDirect = direct.getThroughput();
+        for (int i = 1; i <= 10; i++) {
+            seriePool.getData().add(new XYChart.Data<>(i, tPool));
+            serieDirect.getData().add(new XYChart.Data<>(i, tDirect));
+        }
+
+        // Tabla
+        tabla.getItems().setAll(
+            new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
+                        pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
+            new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
+                                                String.format("%.1f ms", direct.getAvgResponseMs()),
+                        pool.getAvgResponseMs() <= direct.getAvgResponseMs() ? "CON POOL" : "SIN POOL"),
+            new Metrica("Peticiones / segundo", String.format("%.1f", pool.getThroughput()),
+                                                String.format("%.1f", direct.getThroughput()),
+                        pool.getThroughput() >= direct.getThroughput() ? "CON POOL" : "SIN POOL"),
+            new Metrica("Exitosas",             String.format("%.1f %%", pool.getSuccessPercent()),
+                                                String.format("%.1f %%", direct.getSuccessPercent()),
+                        pool.getSuccessPercent() >= direct.getSuccessPercent() ? "CON POOL" : "SIN POOL"),
+            new Metrica("Fallidas",             String.valueOf(pool.getFailures()),
+                                                String.valueOf(direct.getFailures()),
+                        pool.getFailures() <= direct.getFailures() ? "CON POOL" : "SIN POOL"),
+            new Metrica("Reintentos",           String.valueOf(pool.getRetries()),
+                                                String.valueOf(direct.getRetries()), "—")
+        );
     }
 
-    // 3. Actualizar la tabla
-    tabla.getItems().setAll(
-        new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
-                    pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
-        new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
-                                            String.format("%.1f ms", direct.getAvgResponseMs()),
-                    pool.getAvgResponseMs() <= direct.getAvgResponseMs() ? "CON POOL" : "SIN POOL"),
-        new Metrica("Peticiones / segundo", String.format("%.1f", pool.getThroughput()),
-                                            String.format("%.1f", direct.getThroughput()),
-                    pool.getThroughput() >= direct.getThroughput() ? "CON POOL" : "SIN POOL"),
-        new Metrica("Exitosas",             String.format("%.1f %%", pool.getSuccessPercent()),
-                                            String.format("%.1f %%", direct.getSuccessPercent()),
-                    pool.getSuccessPercent() >= direct.getSuccessPercent() ? "CON POOL" : "SIN POOL"),
-        new Metrica("Fallidas",             String.valueOf(pool.getFailures()),
-                                            String.valueOf(direct.getFailures()),
-                    pool.getFailures() <= direct.getFailures() ? "CON POOL" : "SIN POOL"),
-        new Metrica("Reintentos",           String.valueOf(pool.getRetries()),
-                                            String.valueOf(direct.getRetries()), "—")
-    );
-}
+    private static Spinner<Integer> sp(int val, int min, int max, int step) {
+        Spinner<Integer> s = new Spinner<>();
+        s.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(min, max, val, step));
+        s.setPrefWidth(85);
+        return s;
+    }
 
- private static Spinner<Integer> sp(int val, int min, int max, int step) {
-    Spinner<Integer> s = new Spinner<>();
-    s.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(min, max, val, step));
-    s.setPrefWidth(85);
-    return s;
-}
-    // AQUÍ ESTÁ LA CLASE QUE FALTABA
     public record Metrica(String nombre, String conPool, String sinPool, String mejor) {}
 
     public static void main(String[] args) {

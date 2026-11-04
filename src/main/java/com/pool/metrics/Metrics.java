@@ -27,4 +27,10 @@ public class Metrics {
         return new MetricsSnapshot(elapsedMs, exitos.sum(), fallos.sum(), reintentos.sum(),
                 totalNanos.sum(), minNanos.get(), maxNanos.get());
     }
+
+    // 👇 Nuevo método para crear el snapshot indicando si fue abortado
+    public MetricsSnapshot snapshot(long elapsedMs, boolean aborted) {
+        return new MetricsSnapshot(elapsedMs, exitos.sum(), fallos.sum(), reintentos.sum(),
+                totalNanos.sum(), minNanos.get(), maxNanos.get(), aborted);
+    }
 }

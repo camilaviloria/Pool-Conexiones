@@ -21,6 +21,9 @@ public class Simulation {
     private static final long TIMEOUT_MS = 30_000;
     private static final long MAX_MINUTOS = 10;
 
+    // 👇 Constante del tiempo máximo para el modo sin pool
+    public static final long TIMEOUT_SIN_POOL_MS = 15_000;
+
     private final CreadorConexiones factory;
     private final SimulationSettings settings;
 
@@ -29,38 +32,63 @@ public class Simulation {
         this.settings = settings;
     }
 
-    public MetricsSnapshot run(Mode mode, Metrics metrics) {
+    // 👇 Añadido el parámetro 'timeoutMs' al final
+    public MetricsSnapshot run(Mode mode, Metrics metrics, long timeoutMs) {
         ConnectionPool pool = null;
         ConnectionProvider provider;
 
         if (mode == Mode.WITH_POOL) {
-           try {
-    pool = new ConnectionPool(settings.getPoolInicial(), settings.getPoolMaximo(), factory);
-} catch (SQLException e) {
-    System.err.println("¡ERROR AL CREAR EL POOL! " + e.getMessage());
-    e.printStackTrace();
-    return metrics.snapshot(0);
-}
+            try {
+                pool = new ConnectionPool(settings.getPoolInicial(), settings.getPoolMaximo(), factory);
+            } catch (SQLException e) {
+                System.err.println("¡ERROR AL CREAR EL POOL! " + e.getMessage());
+                e.printStackTrace();
+                return metrics.snapshot(0);
+            }
             provider = new PoolConnectionProvider(pool, TIMEOUT_MS);
         } else {
             provider = new DirectConnectionProvider(factory);
         }
 
+        ExecutorService ex = Executors.newFixedThreadPool(Math.max(1, settings.getThreads()));
+        boolean termino = false;
+        
         try {
             long inicio = System.nanoTime();
-            ExecutorService ex = Executors.newFixedThreadPool(Math.max(1, settings.getThreads()));
             for (int i = 0; i < settings.getRequests(); i++) {
                 ex.execute(new Cliente(provider, metrics, settings.getReintentos()));
             }
             ex.shutdown();
+
             try {
-                if (!ex.awaitTermination(MAX_MINUTOS, TimeUnit.MINUTES)) ex.shutdownNow();
+                // Si timeoutMs es mayor a 0, usamos ese tiempo. Si es 0, usamos el máximo (10 min).
+                if (timeoutMs > 0) {
+                    termino = ex.awaitTermination(timeoutMs, TimeUnit.MILLISECONDS);
+                } else {
+                    termino = ex.awaitTermination(MAX_MINUTOS, TimeUnit.MINUTES);
+                }
             } catch (InterruptedException e) {
                 ex.shutdownNow();
                 Thread.currentThread().interrupt();
+                termino = false;
             }
+
+            if (!termino) {
+                // Abortar: interrumpir hilos bloqueados y forzar cierre
+                ex.shutdownNow();
+                try {
+                    ex.awaitTermination(2, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                System.err.println("⏱️ Timeout en modo " + mode + " (" + timeoutMs + " ms). Abortado.");
+            }
+
             long ms = (System.nanoTime() - inicio) / 1_000_000;
-            return metrics.snapshot(ms);
+            
+            // 👇 Se pasa '!termino' para marcar si fue abortado
+            return metrics.snapshot(ms, !termino);
+
         } finally {
             if (pool != null) pool.close();
         }
