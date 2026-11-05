@@ -7,7 +7,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class ConnectionPool implements AutoCloseable { // Implementación de un pool de conexiones que gestiona la creación, adquisición y liberación de conexiones a la base de datos.
+public class ConnectionPool implements AutoCloseable { 
 
     private final BlockingQueue<Connection> libres;
     private final CreadorConexiones factory;

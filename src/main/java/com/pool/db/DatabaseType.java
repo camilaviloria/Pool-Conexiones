@@ -28,7 +28,7 @@ public enum DatabaseType {
         this.defaultUser = user;
     }
 
-    public CreadorConexiones createFactory() {// Crea un CreadorConexiones basado en la configuración de la base de datos seleccionada.
+    public CreadorConexiones createFactory() {
         if (this == SIMULADO) return new FakeConnectionFactory();
         return new JdbcConnectionFactory(
                 driverClass,

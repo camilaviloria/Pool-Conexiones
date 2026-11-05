@@ -22,10 +22,20 @@ public class JdbcConnectionFactory implements CreadorConexiones {
 
     @Override
     public Connection crear() throws SQLException {
-        try { Class.forName(driverClass); }
-        catch (ClassNotFoundException e) {
+        try { 
+            Class.forName(driverClass); 
+        } catch (ClassNotFoundException e) {
             throw new SQLException("Falta el driver JDBC (" + driverClass + ").", e);
         }
-        return DriverManager.getConnection(url, user, password);
+
+        // 🔥 TIMEOUT DE 1 SEGUNDO PARA EVITAR QUE SE CUELGUE EN EL COLAPSO
+        String urlConTimeouts = this.url;
+        if (urlConTimeouts.contains("?")) {
+            urlConTimeouts += "&connectTimeout=1&socketTimeout=1";
+        } else {
+            urlConTimeouts += "?connectTimeout=1&socketTimeout=1";
+        }
+
+        return DriverManager.getConnection(urlConTimeouts, user, password);
     }
 }

@@ -7,7 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
-public class Cliente implements Runnable { // Representa un cliente que realiza consultas a la base de datos utilizando un ConnectionProvider y registra métricas de rendimiento.
+public class Cliente implements Runnable { 
 
     private static final String[] QUERIES = {
             "SELECT * FROM notas LIMIT 1",
@@ -46,7 +46,7 @@ public class Cliente implements Runnable { // Representa un cliente que realiza 
                 ejecutar(sql);
                 ok = true;
            } catch (SQLException | InterruptedException | RuntimeException e) {
-    System.err.println("Error en consulta: " + e.getMessage()); // <--- Agrega esta línea
+    System.err.println("Error en consulta: " + e.getMessage()); 
 }
         }
 

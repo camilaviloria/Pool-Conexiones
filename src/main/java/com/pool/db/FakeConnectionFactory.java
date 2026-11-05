@@ -13,13 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.pool.pool.CreadorConexiones;
 
-/**
- * BD simulada: abrir conexión ~25 ms, query 2-6 ms, límite 60 conexiones.
- * Sirve para comparar pool vs sin pool sin instalar nada.
- */
 public class FakeConnectionFactory implements CreadorConexiones {
 
-    private static final int MAX_OPEN = 1000;
+    private static final int MAX_OPEN = 1000; 
     private static final int CONNECT_MS = 5;
 
     private final AtomicInteger abiertas = new AtomicInteger();

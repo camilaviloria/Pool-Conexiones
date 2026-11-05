@@ -1,6 +1,6 @@
 package com.pool.pool;
 
-public class PoolConfig { // Representa la configuración del pool de conexiones, incluyendo el tamaño inicial, el tamaño máximo y el tiempo de espera para adquirir una conexión.
+public class PoolConfig { 
     private final int inicial;
     private final int maximo;
     private final long timeoutMs;

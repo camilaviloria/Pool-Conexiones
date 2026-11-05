@@ -21,7 +21,9 @@ import javafx.stage.Stage;
 public class PoolMetricsApp extends Application {
 
     private final ToggleGroup engineGroup = new ToggleGroup();
-    private final Button btnEjecutar = new Button("▶  EJECUTAR");
+    
+    private final Button btnProbarPool = new Button("▶ PROBAR CON POOL");
+    private final Button btnProbarSinPool = new Button("⚠ PROBAR SIN POOL");
 
     private final Label lblVelPool    = new Label("—");
     private final Label lblVelDirect  = new Label("—");
@@ -42,9 +44,8 @@ public class PoolMetricsApp extends Application {
     private final ProgressBar progress = new ProgressBar(0);
     private final Label status = new Label("Listo.");
 
-    // Spinners
-    private final Spinner<Integer> spRequests = sp(1000, 1, 200_000, 500);
-    private final Spinner<Integer> spThreads  = sp(200, 1, 5000, 10);
+    private final Spinner<Integer> spRequests = sp(5000, 1, 200_000, 500);
+    private final Spinner<Integer> spThreads  = sp(5000, 1, 5000, 10);
     private final Spinner<Integer> spRetries  = sp(2, 0, 999, 1);
     private final Spinner<Integer> spPoolInit = sp(AppConfig.getInt("pool.init.size", 20), 0, 5000, 5);
     private final Spinner<Integer> spPoolMax  = sp(AppConfig.getInt("pool.max.size", 200), 1, 5000, 5);
@@ -60,19 +61,15 @@ public class PoolMetricsApp extends Application {
         root.setBottom(buildStatusBar());
 
         Scene scene = new Scene(root, 1150, 780);
-
         var cssUrl = getClass().getResource("/styles.css");
-        if (cssUrl != null) {
-            scene.getStylesheets().add(cssUrl.toExternalForm());
-        } else {
-            System.err.println("No se encontró styles.css en resources.");
-        }
+        if (cssUrl != null) scene.getStylesheets().add(cssUrl.toExternalForm());
 
         stage.setScene(scene);
         stage.setTitle("Pool vs Sin Pool — Comparador");
         stage.show();
 
-        btnEjecutar.setOnAction(e -> ejecutarComparacion());
+        btnProbarPool.setOnAction(e -> ejecutarPrueba(Simulation.Mode.WITH_POOL));
+        btnProbarSinPool.setOnAction(e -> ejecutarPrueba(Simulation.Mode.WITHOUT_POOL));
     }
 
     private HBox buildTopBar() {
@@ -95,10 +92,13 @@ public class PoolMetricsApp extends Application {
                 label("Pool máx:"), spPoolMax);
         params.setAlignment(Pos.CENTER_LEFT);
 
-        btnEjecutar.getStyleClass().add("btn-ejecutar");
-        btnEjecutar.setMaxHeight(Double.MAX_VALUE);
+        btnProbarPool.getStyleClass().add("btn-ejecutar");
+        btnProbarSinPool.getStyleClass().add("btn-ejecutar");
+        
+        btnProbarPool.setMaxHeight(Double.MAX_VALUE);
+        btnProbarSinPool.setMaxHeight(Double.MAX_VALUE);
 
-        HBox bar = new HBox(14, title, spacer, pg, my, sim, params, btnEjecutar);
+        HBox bar = new HBox(14, title, spacer, pg, my, sim, params, btnProbarPool, btnProbarSinPool);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.getStyleClass().add("top-bar");
         return bar;
@@ -237,13 +237,13 @@ public class PoolMetricsApp extends Application {
         return bar;
     }
 
-    private void ejecutarComparacion() {
-        btnEjecutar.setDisable(true);
+    private void ejecutarPrueba(Simulation.Mode modo) {
+        btnProbarPool.setDisable(true);
+        btnProbarSinPool.setDisable(true);
         tabla.getItems().clear();
         seriePool.getData().clear();
         serieDirect.getData().clear();
 
-        // Si el usuario escribió en el Spinner pero no le dio Enter, forzamos el commit
         try {
             spRequests.commitValue();
             spThreads.commitValue();
@@ -253,8 +253,10 @@ public class PoolMetricsApp extends Application {
         } catch (Exception ignored) {}
 
         int requests = spRequests.getValue();
+        int reintentos = (modo == Simulation.Mode.WITHOUT_POOL) ? 0 : spRetries.getValue();
+        
         SimulationSettings settings = new SimulationSettings(
-                requests, spThreads.getValue(), spRetries.getValue(),
+                requests, spThreads.getValue(), reintentos,
                 spPoolInit.getValue(), spPoolMax.getValue()
         );
 
@@ -265,33 +267,28 @@ public class PoolMetricsApp extends Application {
 
         Thread hilo = new Thread(() -> {
             try {
-                // 1. CON POOL
-                Platform.runLater(() -> status.setText("Ejecutando CON POOL..."));
+                String nombreModo = (modo == Simulation.Mode.WITH_POOL) ? "CON POOL" : "SIN POOL";
+                Platform.runLater(() -> status.setText("Ejecutando " + nombreModo + "..."));
+                
                 Simulation sim = new Simulation(engine.createFactory(), settings);
-                Metrics m1 = new Metrics();
-                MetricsSnapshot snapPool = sim.run(Simulation.Mode.WITH_POOL, m1, 0);
+                Metrics m = new Metrics();
+                
+                // 🔥 LÍMITE DE 4000 MILISEGUNDOS (4 SEGUNDOS)
+                long timeout = (modo == Simulation.Mode.WITHOUT_POOL) ? 4000 : 0;
+                
+                MetricsSnapshot snap = sim.run(modo, m, timeout);
 
-                // 2. SIN POOL
-                Platform.runLater(() -> status.setText("Ejecutando SIN POOL (máx 15s)..."));
-                Metrics m2 = new Metrics();
-                MetricsSnapshot snapDirect = sim.run(
-                        Simulation.Mode.WITHOUT_POOL, m2,
-                        Simulation.TIMEOUT_SIN_POOL_MS
-                );
-
-                // 3. Mostrar resultados
                 Platform.runLater(() -> {
+                    MetricsSnapshot snapPool = (modo == Simulation.Mode.WITH_POOL) ? snap : null;
+                    MetricsSnapshot snapDirect = (modo == Simulation.Mode.WITHOUT_POOL) ? snap : null;
+                    
                     mostrarResultados(snapPool, snapDirect);
                     
-                    if (snapDirect.isAborted()) {
+                    if (modo == Simulation.Mode.WITHOUT_POOL && snap.isAborted()) {
                         Alert alert = new Alert(Alert.AlertType.WARNING);
                         alert.setTitle("Prueba abortada");
-                        alert.setHeaderText("⚠️ La prueba SIN POOL superó los 15 segundos");
-                        alert.setContentText(
-                                "Se abortó la prueba SIN POOL para no exceder el límite de 15s.\n\n" +
-                                "Se completaron " + snapDirect.getRequests() + " de " + requests + " peticiones.\n" +
-                                "Los resultados mostrados son parciales."
-                        );
+                        alert.setHeaderText("⚠️ La prueba SIN POOL colapsó (máx 4s)");
+                        alert.setContentText("Se completaron " + snap.getRequests() + " de " + requests + " peticiones.");
                         alert.showAndWait();
                     }
                 });
@@ -302,7 +299,8 @@ public class PoolMetricsApp extends Application {
             } finally {
                 Platform.runLater(() -> {
                     progress.setProgress(0);
-                    btnEjecutar.setDisable(false);
+                    btnProbarPool.setDisable(false);
+                    btnProbarSinPool.setDisable(false);
                     status.setText("Terminado.");
                 });
             }
@@ -311,66 +309,72 @@ public class PoolMetricsApp extends Application {
     }
 
     private void mostrarResultados(MetricsSnapshot pool, MetricsSnapshot direct) {
-        lblTiempoPool.setText(pool.getElapsedMs() + " ms");
-        lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
-        lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
-        lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
-
-        double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
-        lblDelta.setText(String.format("%+.1f ms", delta));
-
-        boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
-        lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
-        
-        long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
-        long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
-        lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
-
-        if (direct.isAborted()) {
-            lblTiempoDirect.setText(direct.getElapsedMs() + " ms (abortado)");
-            lblTiempoDirect.setStyle("-fx-text-fill: #E53935;"); 
-        } else {
-            lblTiempoDirect.setText(direct.getElapsedMs() + " ms");
-            lblTiempoDirect.setStyle(""); 
+        if (pool != null) {
+            lblTiempoPool.setText(pool.getElapsedMs() + " ms");
+            lblVelPool.setText(String.format("%.1f ms", pool.getAvgResponseMs()));
+        }
+        if (direct != null) {
+            lblTiempoDirect.setText(direct.isAborted() ? direct.getElapsedMs() + " ms (abortado)" : direct.getElapsedMs() + " ms");
+            lblVelDirect.setText(String.format("%.1f ms", direct.getAvgResponseMs()));
         }
 
-        // Gráfica
+        if (pool != null && direct != null) {
+            lblFallos.setText(String.format("%.1f%% / %.1f%%", pool.getFailurePercent(), direct.getFailurePercent()));
+            double delta = pool.getAvgResponseMs() - direct.getAvgResponseMs();
+            lblDelta.setText(String.format("%+.1f ms", delta));
+
+            boolean poolGana = pool.getElapsedMs() <= direct.getElapsedMs();
+            lblGanador.setText(poolGana ? "CON POOL" : "SIN POOL");
+            
+            long lento = Math.max(pool.getElapsedMs(), direct.getElapsedMs());
+            long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
+            lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
+        } else {
+            lblFallos.setText("—");
+            lblDelta.setText("—");
+            lblGanador.setText("—");
+            lblPorcentaje.setText("");
+        }
+
         seriePool.getData().clear();
         serieDirect.getData().clear();
-        seriePool.getData().add(new XYChart.Data<>(0, 0));
-        serieDirect.getData().add(new XYChart.Data<>(0, 0));
         
-        double tPool = pool.getThroughput();
-        double tDirect = direct.getThroughput();
-        for (int i = 1; i <= 10; i++) {
-            seriePool.getData().add(new XYChart.Data<>(i, tPool));
-            serieDirect.getData().add(new XYChart.Data<>(i, tDirect));
+        if (pool != null) {
+            seriePool.getData().add(new XYChart.Data<>(0, 0));
+            for (int i = 1; i <= 10; i++) {
+                seriePool.getData().add(new XYChart.Data<>(i, pool.getThroughput()));
+            }
+        }
+        if (direct != null) {
+            serieDirect.getData().add(new XYChart.Data<>(0, 0));
+            for (int i = 1; i <= 10; i++) {
+                serieDirect.getData().add(new XYChart.Data<>(i, direct.getThroughput()));
+            }
         }
 
-        // Tabla
         tabla.getItems().setAll(
-            // 🔥 NUEVA FILA CON EL TOTAL DE PETICIONES REALIZADAS
-            new Metrica("Total Peticiones Realizadas", 
-                        String.valueOf(pool.getRequests()), 
-                        String.valueOf(direct.getRequests()), 
+            new Metrica("Total Peticiones", 
+                        pool != null ? String.valueOf(pool.getRequests()) : "—", 
+                        direct != null ? String.valueOf(direct.getRequests()) : "—", 
                         "—"),
-
-            new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
-                        pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
-                                                String.format("%.1f ms", direct.getAvgResponseMs()),
-                        pool.getAvgResponseMs() <= direct.getAvgResponseMs() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Peticiones / segundo", String.format("%.1f", pool.getThroughput()),
-                                                String.format("%.1f", direct.getThroughput()),
-                        pool.getThroughput() >= direct.getThroughput() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Exitosas",             String.format("%.1f %%", pool.getSuccessPercent()),
-                                                String.format("%.1f %%", direct.getSuccessPercent()),
-                        pool.getSuccessPercent() >= direct.getSuccessPercent() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Fallidas",             String.valueOf(pool.getFailures()),
-                                                String.valueOf(direct.getFailures()),
-                        pool.getFailures() <= direct.getFailures() ? "CON POOL" : "SIN POOL"),
-            new Metrica("Reintentos",           String.valueOf(pool.getRetries()),
-                                                String.valueOf(direct.getRetries()), "—")
+            new Metrica("Tiempo total", 
+                        pool != null ? pool.getElapsedMs() + " ms" : "—", 
+                        direct != null ? direct.getElapsedMs() + " ms" : "—", "—"),
+            new Metrica("Respuesta promedio", 
+                        pool != null ? String.format("%.1f ms", pool.getAvgResponseMs()) : "—", 
+                        direct != null ? String.format("%.1f ms", direct.getAvgResponseMs()) : "—", "—"),
+            new Metrica("Peticiones / segundo", 
+                        pool != null ? String.format("%.1f", pool.getThroughput()) : "—", 
+                        direct != null ? String.format("%.1f", direct.getThroughput()) : "—", "—"),
+            new Metrica("Exitosas", 
+                        pool != null ? String.format("%.1f %%", pool.getSuccessPercent()) : "—", 
+                        direct != null ? String.format("%.1f %%", direct.getSuccessPercent()) : "—", "—"),
+            new Metrica("Fallidas", 
+                        pool != null ? String.valueOf(pool.getFailures()) : "—", 
+                        direct != null ? String.valueOf(direct.getFailures()) : "—", "—"),
+            new Metrica("Reintentos", 
+                        pool != null ? String.valueOf(pool.getRetries()) : "—", 
+                        direct != null ? String.valueOf(direct.getRetries()) : "—", "—")
         );
     }
 
@@ -378,7 +382,7 @@ public class PoolMetricsApp extends Application {
         Spinner<Integer> s = new Spinner<>();
         s.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(min, max, val, step));
         s.setPrefWidth(85);
-        s.setEditable(true); // 🔥 Permite escribir directamente en el cuadro
+        s.setEditable(true);
         return s;
     }
 
