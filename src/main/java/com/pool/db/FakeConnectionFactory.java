@@ -19,8 +19,8 @@ import com.pool.pool.CreadorConexiones;
  */
 public class FakeConnectionFactory implements CreadorConexiones {
 
-    private static final int MAX_OPEN = 60;
-    private static final int CONNECT_MS = 25;
+    private static final int MAX_OPEN = 1000;
+    private static final int CONNECT_MS = 5;
 
     private final AtomicInteger abiertas = new AtomicInteger();
 

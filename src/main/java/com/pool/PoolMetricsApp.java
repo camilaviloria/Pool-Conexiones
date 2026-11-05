@@ -42,6 +42,7 @@ public class PoolMetricsApp extends Application {
     private final ProgressBar progress = new ProgressBar(0);
     private final Label status = new Label("Listo.");
 
+    // Spinners
     private final Spinner<Integer> spRequests = sp(1000, 1, 200_000, 500);
     private final Spinner<Integer> spThreads  = sp(200, 1, 5000, 10);
     private final Spinner<Integer> spRetries  = sp(2, 0, 999, 1);
@@ -242,6 +243,15 @@ public class PoolMetricsApp extends Application {
         seriePool.getData().clear();
         serieDirect.getData().clear();
 
+        // Si el usuario escribió en el Spinner pero no le dio Enter, forzamos el commit
+        try {
+            spRequests.commitValue();
+            spThreads.commitValue();
+            spRetries.commitValue();
+            spPoolInit.commitValue();
+            spPoolMax.commitValue();
+        } catch (Exception ignored) {}
+
         int requests = spRequests.getValue();
         SimulationSettings settings = new SimulationSettings(
                 requests, spThreads.getValue(), spRetries.getValue(),
@@ -255,13 +265,13 @@ public class PoolMetricsApp extends Application {
 
         Thread hilo = new Thread(() -> {
             try {
-                // 1. CON POOL (sin límite de tiempo)
+                // 1. CON POOL
                 Platform.runLater(() -> status.setText("Ejecutando CON POOL..."));
                 Simulation sim = new Simulation(engine.createFactory(), settings);
                 Metrics m1 = new Metrics();
                 MetricsSnapshot snapPool = sim.run(Simulation.Mode.WITH_POOL, m1, 0);
 
-                // 2. SIN POOL (límite de 15s)
+                // 2. SIN POOL
                 Platform.runLater(() -> status.setText("Ejecutando SIN POOL (máx 15s)..."));
                 Metrics m2 = new Metrics();
                 MetricsSnapshot snapDirect = sim.run(
@@ -316,7 +326,6 @@ public class PoolMetricsApp extends Application {
         long rapido = Math.min(pool.getElapsedMs(), direct.getElapsedMs());
         lblPorcentaje.setText(lento == 0 ? "—" : String.format("%.1f %% menos tiempo", (lento - rapido) * 100.0 / lento));
 
-        // Si la prueba directa fue abortada, lo marcamos visualmente
         if (direct.isAborted()) {
             lblTiempoDirect.setText(direct.getElapsedMs() + " ms (abortado)");
             lblTiempoDirect.setStyle("-fx-text-fill: #E53935;"); 
@@ -340,6 +349,12 @@ public class PoolMetricsApp extends Application {
 
         // Tabla
         tabla.getItems().setAll(
+            // 🔥 NUEVA FILA CON EL TOTAL DE PETICIONES REALIZADAS
+            new Metrica("Total Peticiones Realizadas", 
+                        String.valueOf(pool.getRequests()), 
+                        String.valueOf(direct.getRequests()), 
+                        "—"),
+
             new Metrica("Tiempo total",         pool.getElapsedMs() + " ms",  direct.getElapsedMs() + " ms",
                         pool.getElapsedMs() <= direct.getElapsedMs() ? "CON POOL" : "SIN POOL"),
             new Metrica("Respuesta promedio",   String.format("%.1f ms", pool.getAvgResponseMs()),
@@ -363,6 +378,7 @@ public class PoolMetricsApp extends Application {
         Spinner<Integer> s = new Spinner<>();
         s.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(min, max, val, step));
         s.setPrefWidth(85);
+        s.setEditable(true); // 🔥 Permite escribir directamente en el cuadro
         return s;
     }
 

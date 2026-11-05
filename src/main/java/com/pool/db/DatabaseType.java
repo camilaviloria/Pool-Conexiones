@@ -3,7 +3,7 @@ package com.pool.db;
 import com.pool.pool.CreadorConexiones;
 import com.pool.util.AppConfig;
 
-public enum DatabaseType {
+public enum DatabaseType { 
 
     POSTGRES("PostgreSQL", "org.postgresql.Driver", "postgres",
             "jdbc:postgresql://localhost:5432/mynotes_db", "postgres"),
@@ -12,7 +12,7 @@ public enum DatabaseType {
             "jdbc:mysql://localhost:3306/mynotes_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC",
             "root"),
 
-    SIMULADO("Simulado (sin BD)", null, null, null, null);
+    SIMULADO("Simulado (sin BD)", null, null, null, null); 
 
     private final String label;
     private final String driverClass;
@@ -28,7 +28,7 @@ public enum DatabaseType {
         this.defaultUser = user;
     }
 
-    public CreadorConexiones createFactory() {
+    public CreadorConexiones createFactory() {// Crea un CreadorConexiones basado en la configuración de la base de datos seleccionada.
         if (this == SIMULADO) return new FakeConnectionFactory();
         return new JdbcConnectionFactory(
                 driverClass,

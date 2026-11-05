@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Simulation {
 
@@ -20,8 +21,6 @@ public class Simulation {
 
     private static final long TIMEOUT_MS = 30_000;
     private static final long MAX_MINUTOS = 10;
-
-    // 👇 Constante del tiempo máximo para el modo sin pool
     public static final long TIMEOUT_SIN_POOL_MS = 15_000;
 
     private final CreadorConexiones factory;
@@ -32,7 +31,6 @@ public class Simulation {
         this.settings = settings;
     }
 
-    // 👇 Añadido el parámetro 'timeoutMs' al final
     public MetricsSnapshot run(Mode mode, Metrics metrics, long timeoutMs) {
         ConnectionPool pool = null;
         ConnectionProvider provider;
@@ -50,18 +48,31 @@ public class Simulation {
             provider = new DirectConnectionProvider(factory);
         }
 
-        ExecutorService ex = Executors.newFixedThreadPool(Math.max(1, settings.getThreads()));
+        // Creamos el pool de HILOS (no de peticiones)
+        int totalHilos = Math.max(1, settings.getThreads());
+        ExecutorService ex = Executors.newFixedThreadPool(totalHilos);
         boolean termino = false;
-        
+
+        // 🔥 EL CONTADOR MÁGICO: Lleva la cuenta exacta de las peticiones
+        AtomicInteger peticionesRestantes = new AtomicInteger(settings.getRequests());
+
         try {
             long inicio = System.nanoTime();
-            for (int i = 0; i < settings.getRequests(); i++) {
-                ex.execute(new Cliente(provider, metrics, settings.getReintentos()));
+
+            // Lanzamos solo los hilos solicitados
+            for (int i = 0; i < totalHilos; i++) {
+                ex.execute(() -> {
+                    // Cada hilo toma una petición y resta 1 al contador.
+                    // Cuando el contador llega a 0 o menos, el hilo se detiene.
+                    while (peticionesRestantes.getAndDecrement() > 0) {
+                        new Cliente(provider, metrics, settings.getReintentos()).run();
+                    }
+                });
             }
+            
             ex.shutdown();
 
             try {
-                // Si timeoutMs es mayor a 0, usamos ese tiempo. Si es 0, usamos el máximo (10 min).
                 if (timeoutMs > 0) {
                     termino = ex.awaitTermination(timeoutMs, TimeUnit.MILLISECONDS);
                 } else {
@@ -74,7 +85,6 @@ public class Simulation {
             }
 
             if (!termino) {
-                // Abortar: interrumpir hilos bloqueados y forzar cierre
                 ex.shutdownNow();
                 try {
                     ex.awaitTermination(2, TimeUnit.SECONDS);
@@ -85,8 +95,6 @@ public class Simulation {
             }
 
             long ms = (System.nanoTime() - inicio) / 1_000_000;
-            
-            // 👇 Se pasa '!termino' para marcar si fue abortado
             return metrics.snapshot(ms, !termino);
 
         } finally {

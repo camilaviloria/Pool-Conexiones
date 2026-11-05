@@ -7,7 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
-public class Cliente implements Runnable {
+public class Cliente implements Runnable { // Representa un cliente que realiza consultas a la base de datos utilizando un ConnectionProvider y registra métricas de rendimiento.
 
     private static final String[] QUERIES = {
             "SELECT * FROM notas LIMIT 1",

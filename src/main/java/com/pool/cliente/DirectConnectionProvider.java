@@ -5,7 +5,7 @@ import java.sql.SQLException;
 
 import com.pool.pool.CreadorConexiones;
 
-public class DirectConnectionProvider implements ConnectionProvider {
+public class DirectConnectionProvider implements ConnectionProvider { // Implementación de ConnectionProvider que crea conexiones directamente utilizando un CreadorConexiones.
 
     private final CreadorConexiones factory;
 
