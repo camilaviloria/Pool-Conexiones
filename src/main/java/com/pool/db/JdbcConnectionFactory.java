@@ -3,7 +3,6 @@ package com.pool.db;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-
 import com.pool.pool.CreadorConexiones;
 
 public class JdbcConnectionFactory implements CreadorConexiones {
@@ -28,12 +27,12 @@ public class JdbcConnectionFactory implements CreadorConexiones {
             throw new SQLException("Falta el driver JDBC (" + driverClass + ").", e);
         }
 
-        // 🔥 TIMEOUT DE 1 SEGUNDO PARA EVITAR QUE SE CUELGUE EN EL COLAPSO
+        // 🔥 FORZAMOS A WINDOWS A REUTILIZAR LOS PUERTOS TCP RÁPIDO
         String urlConTimeouts = this.url;
         if (urlConTimeouts.contains("?")) {
-            urlConTimeouts += "&connectTimeout=1&socketTimeout=1";
+            urlConTimeouts += "&connectTimeout=1&socketTimeout=5&tcpKeepAlive=true";
         } else {
-            urlConTimeouts += "?connectTimeout=1&socketTimeout=1";
+            urlConTimeouts += "?connectTimeout=1&socketTimeout=5&tcpKeepAlive=true";
         }
 
         return DriverManager.getConnection(urlConTimeouts, user, password);

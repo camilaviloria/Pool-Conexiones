@@ -44,6 +44,9 @@ public class PoolMetricsApp extends Application {
     private final ProgressBar progress = new ProgressBar(0);
     private final Label status = new Label("Listo.");
 
+    // 🔥 LÍMITE DE 8 SEGUNDOS PARA EL SIN POOL
+    private static final long TIMEOUT_SIN_POOL_MS = 8000; 
+
     private final Spinner<Integer> spRequests = sp(5000, 1, 200_000, 500);
     private final Spinner<Integer> spThreads  = sp(5000, 1, 5000, 10);
     private final Spinner<Integer> spRetries  = sp(2, 0, 999, 1);
@@ -255,8 +258,15 @@ public class PoolMetricsApp extends Application {
         int requests = spRequests.getValue();
         int reintentos = (modo == Simulation.Mode.WITHOUT_POOL) ? 0 : spRetries.getValue();
         
+        int hilosAUsar = spThreads.getValue();
+        
+        // 🔥 SI ES SIN POOL, LIMITAMOS LOS HILOS A 100 PARA QUE NO COLAPSE EN EL PRIMER SEGUNDO
+        if (modo == Simulation.Mode.WITHOUT_POOL && hilosAUsar > 100) {
+            hilosAUsar = 100; 
+        }
+
         SimulationSettings settings = new SimulationSettings(
-                requests, spThreads.getValue(), reintentos,
+                requests, hilosAUsar, reintentos,
                 spPoolInit.getValue(), spPoolMax.getValue()
         );
 
@@ -273,8 +283,7 @@ public class PoolMetricsApp extends Application {
                 Simulation sim = new Simulation(engine.createFactory(), settings);
                 Metrics m = new Metrics();
                 
-                // 🔥 LÍMITE DE 4000 MILISEGUNDOS (4 SEGUNDOS)
-                long timeout = (modo == Simulation.Mode.WITHOUT_POOL) ? 4000 : 0;
+                long timeout = (modo == Simulation.Mode.WITHOUT_POOL) ? TIMEOUT_SIN_POOL_MS : 0;
                 
                 MetricsSnapshot snap = sim.run(modo, m, timeout);
 
@@ -284,11 +293,12 @@ public class PoolMetricsApp extends Application {
                     
                     mostrarResultados(snapPool, snapDirect);
                     
-                    if (modo == Simulation.Mode.WITHOUT_POOL && snap.isAborted()) {
+                    if (modo == Simulation.Mode.WITHOUT_POOL && snap.isAborted() && snap.getSuccessPercent() < 10.0) {
                         Alert alert = new Alert(Alert.AlertType.WARNING);
                         alert.setTitle("Prueba abortada");
-                        alert.setHeaderText("⚠️ La prueba SIN POOL colapsó (máx 4s)");
-                        alert.setContentText("Se completaron " + snap.getRequests() + " de " + requests + " peticiones.");
+                        alert.setHeaderText("⚠️ La prueba SIN POOL colapsó (máx " + (TIMEOUT_SIN_POOL_MS / 1000) + "s)");
+                        alert.setContentText("Se completaron " + snap.getRequests() + " de " + requests + " peticiones.\n" +
+                                             "Tasa de éxito: " + String.format("%.1f%%", snap.getSuccessPercent()));
                         alert.showAndWait();
                     }
                 });

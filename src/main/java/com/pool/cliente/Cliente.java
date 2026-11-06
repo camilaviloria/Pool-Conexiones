@@ -50,8 +50,8 @@ public class Cliente implements Runnable {
 }
         }
 
-        metrics.record(ok, System.nanoTime() - inicio, reintentos);
-    }
+// Busca la línea 53 en Cliente.java y cámbiala a:
+metrics.record("query", ok, System.nanoTime() - inicio, reintentos);    }
 
     private void ejecutar(String sql) throws SQLException, InterruptedException {
         Connection c = provider.acquire();

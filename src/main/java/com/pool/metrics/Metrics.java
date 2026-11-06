@@ -1,36 +1,47 @@
 package com.pool.metrics;
 
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 public class Metrics {
 
-    private final LongAdder exitos    = new LongAdder();
-    private final LongAdder fallos    = new LongAdder();
-    private final LongAdder reintentos = new LongAdder();
+    private final LongAdder successes = new LongAdder();
+    private final LongAdder failures = new LongAdder();
+    private final LongAdder retries = new LongAdder();
     private final LongAdder totalNanos = new LongAdder();
     private final AtomicLong minNanos = new AtomicLong(Long.MAX_VALUE);
     private final AtomicLong maxNanos = new AtomicLong(0);
+    private final ConcurrentHashMap<String, LongAdder> perQuery = new ConcurrentHashMap<>();
 
-    public void record(boolean ok, long nanos, int retries) {
-        (ok ? exitos : fallos).increment();
-        reintentos.add(retries);
+    public void record(String queryName, boolean ok, long nanos, int retryCount) {
+        (ok ? successes : failures).increment();
+        retries.add(retryCount);
         totalNanos.add(nanos);
         minNanos.accumulateAndGet(nanos, Math::min);
         maxNanos.accumulateAndGet(nanos, Math::max);
+        perQuery.computeIfAbsent(queryName, k -> new LongAdder()).increment();
     }
 
-    public int getCompletadas() { return (int) (exitos.sum() + fallos.sum()); }
-    public long getFallos()     { return fallos.sum(); }
+    public int getCompleted() {
+        return (int) (successes.sum() + failures.sum());
+    }
 
+    public long getFailures() {
+        return failures.sum();
+    }
+
+    public MetricsSnapshot snapshot(long elapsedMs, boolean aborted, int requestedTotal) {
+        Map<String, Long> queries = new TreeMap<>();
+        perQuery.forEach((name, count) -> queries.put(name, count.sum()));
+        return new MetricsSnapshot(elapsedMs, successes.sum(), failures.sum(), retries.sum(),
+                totalNanos.sum(), minNanos.get(), maxNanos.get(), queries, aborted, requestedTotal);
+    }
+    
+    // Compatibilidad
     public MetricsSnapshot snapshot(long elapsedMs) {
-        return new MetricsSnapshot(elapsedMs, exitos.sum(), fallos.sum(), reintentos.sum(),
-                totalNanos.sum(), minNanos.get(), maxNanos.get());
-    }
-
-    // 👇 Nuevo método para crear el snapshot indicando si fue abortado
-    public MetricsSnapshot snapshot(long elapsedMs, boolean aborted) {
-        return new MetricsSnapshot(elapsedMs, exitos.sum(), fallos.sum(), reintentos.sum(),
-                totalNanos.sum(), minNanos.get(), maxNanos.get(), aborted);
+        return snapshot(elapsedMs, false, 0);
     }
 }
